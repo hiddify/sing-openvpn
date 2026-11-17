@@ -1,7 +1,6 @@
 package openvpn
 
 import (
-	"bytes"
 	"context"
 	"net"
 	"sync"
@@ -263,7 +262,7 @@ func (s *staticKeyClientSession) readLoop() {
 		rawPacketBuffers, readErr := s.packetConnection.ReadPackets()
 		decodedPayloads := make([][]byte, 0, len(rawPacketBuffers))
 		authenticatedPacketReceived := false
-		var fatalDecodeError error
+		var sessionErr error
 		for _, rawPacketBuffer := range rawPacketBuffers {
 			_, decodedPayload, decodeError := s.dataCodec.Decode(nil, rawPacketBuffer.Bytes())
 			if decodeError != nil {
@@ -273,7 +272,7 @@ func (s *staticKeyClientSession) readLoop() {
 				// link_socket_connection_oriented holds, which restarts the
 				// --secret connection instead of reading the stream on.
 				if s.packetConnection.ConnectionOriented() {
-					fatalDecodeError = E.Extend(ErrFatalDecryption, decodeError.Error())
+					sessionErr = E.Extend(ErrFatalDecryption, decodeError.Error())
 					break
 				}
 				continue
@@ -290,7 +289,12 @@ func (s *staticKeyClientSession) readLoop() {
 			if len(framedPayload) == 0 {
 				continue
 			}
-			if bytes.Equal(framedPayload, openVPNDataChannelPingPayload) {
+			consumed, _, messageErr := receiveDataChannelMessage(framedPayload, "")
+			if messageErr != nil {
+				sessionErr = messageErr
+				break
+			}
+			if consumed {
 				continue
 			}
 			decodedPayloads = append(decodedPayloads, framedPayload)
@@ -302,8 +306,8 @@ func (s *staticKeyClientSession) readLoop() {
 			s.access.Unlock()
 		}
 		s.parent.handleIncomingDataPayloads(decodedPayloads, s.dataCodec, dataTransportHeaderSize(s.remote.remote.Protocol), openVPNOuterTransportOverhead(s.remote.remote.Protocol, s.packetConnection.RemoteAddr()))
-		if fatalDecodeError != nil {
-			s.finish(fatalDecodeError)
+		if sessionErr != nil {
+			s.finish(sessionErr)
 			return
 		}
 		keepaliveErr := s.checkKeepalive(time.Now())

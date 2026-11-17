@@ -184,27 +184,19 @@ func (s *tlsPeerSession) handleIncomingDataPackets(packets []*proto.Packet) {
 			decodedPayload.Release()
 			continue
 		}
-		if bytes.Equal(decodedPayload.Bytes(), openVPNDataChannelPingPayload) {
+		consumed, reply, messageErr := receiveDataChannelMessage(decodedPayload.Bytes(), s.localOptionsString)
+		if consumed {
 			flushDecodedPayloads()
-			decodedPayload.Release()
-			continue
-		}
-		if occOpcode(decodedPayload.Bytes()) == int(openVPNOCCExit) {
-			flushDecodedPayloads()
-			decodedPayload.Release()
-			go s.hooks.sessionTerminated(ErrPeerExit)
-			continue
-		}
-		if bytes.HasPrefix(decodedPayload.Bytes(), openVPNOCCMagic) {
-			flushDecodedPayloads()
-			response, shouldSend := buildOCCResponseForIncoming(decodedPayload.Bytes(), s.localOptionsString)
-			if shouldSend {
+			if reply != nil {
 				messages := s.dataChannelMessages()
 				if messages != nil {
-					messages.sendOCCMessage(response)
+					messages.sendOCCMessage(reply)
 				}
 			}
 			decodedPayload.Release()
+			if messageErr != nil {
+				go s.hooks.sessionTerminated(messageErr)
+			}
 			continue
 		}
 		if readBytesObserver != nil {

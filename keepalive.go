@@ -45,16 +45,27 @@ func buildOCCReplyPayload(optionsString string) []byte {
 	return payload
 }
 
-// Upstream process_received_occ_msg replies only to OCC_REQUEST.
-func buildOCCResponseForIncoming(incomingPayload []byte, localOptionsString string) ([]byte, bool) {
-	switch occOpcode(incomingPayload) {
+// Upstream process_incoming_link_part2 (forward.c) drops a ping and hands every
+// payload that starts with the OCC magic to process_received_occ_msg (occ.c) in
+// TLS and --secret modes alike, which consumes it, answers OCC_REQUEST with
+// OCC_REPLY, and restarts the instance on OCC_EXIT.
+func receiveDataChannelMessage(payload []byte, localOptionsString string) (bool, []byte, error) {
+	if bytes.Equal(payload, openVPNDataChannelPingPayload) {
+		return true, nil, nil
+	}
+	if !bytes.HasPrefix(payload, openVPNOCCMagic) {
+		return false, nil, nil
+	}
+	switch occOpcode(payload) {
 	case int(openVPNOCCRequest):
 		if localOptionsString == "" {
-			return nil, false
+			return true, nil, nil
 		}
-		return buildOCCReplyPayload(localOptionsString), true
+		return true, buildOCCReplyPayload(localOptionsString), nil
+	case int(openVPNOCCExit):
+		return true, nil, ErrPeerExit
 	default:
-		return nil, false
+		return true, nil, nil
 	}
 }
 
