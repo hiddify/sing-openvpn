@@ -7,8 +7,9 @@ import (
 )
 
 type peerRoute struct {
-	session *tlsPeerSession
-	queue   OutboundQueue
+	session  *tlsPeerSession
+	queue    OutboundQueue
+	identity *PeerIdentity //H: who owns the address, see h_peer_identity.go
 }
 
 type peerRouteRegistry struct {
